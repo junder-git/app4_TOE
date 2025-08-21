@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Circular Canvas Layout</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Arial', sans-serif;
+        }
+
+        .circle-container {
+            position: relative;
+            width: 400px;
+            height: 400px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+        }
+
+        .canvas-button {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            border: 2px solid #444;
+            background: #111;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .canvas-button:hover {
+            box-shadow: 0 0 20px rgba(100, 100, 255, 0.3);
+        }
+
+        /* Clockwise rotation animation */
+        @keyframes clockwiseRotation {
+            from {
+                transform: rotate(0deg);
+            }
+            to {
+                transform: rotate(360deg);
+            }
+        }
+
+        .circle-container {
+            animation: clockwiseRotation 60s linear infinite;
+        }
+
+        .center-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: rgba(255, 255, 255, 0.8);
+            font-size: 18px;
+            font-weight: bold;
+            text-align: center;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="circle-container">
+        <canvas class="canvas-button" data-text="JUST" data-id="1" width="100" height="40"></canvas>
+        <canvas class="canvas-button" data-text="PATIENCE" data-id="2" width="100" height="40"></canvas>
+        <canvas class="canvas-button" data-text="BALANCE" data-id="3" width="100" height="40"></canvas>
+        <canvas class="canvas-button" data-text="((breath))" data-id="4" width="100" height="40"></canvas>
+        <canvas class="canvas-button" data-text="PEACE" data-id="5" width="100" height="40"></canvas>
+        <canvas class="canvas-button" data-text="FREEDOM" data-id="6" width="100" height="40"></canvas>
+        <canvas class="canvas-button" data-text="LIFE" data-id="7" width="100" height="40"></canvas>
+        <canvas class="canvas-button" data-text="LOVE" data-id="8" width="100" height="40"></canvas>
+        
+        <div class="center-text">Canvas<br>Circle</div>
+    </div>
+
+    <script>
+        class CanvasButton {
+            constructor(canvas, text, id) {
+                this.canvas = canvas;
+                this.ctx = canvas.getContext('2d');
+                this.text = text;
+                this.id = id;
+                
+                // Canvas sizing properties
+                this.canvasSize = {
+                    small: { width: 100, height: 40 },
+                    large: { width: 200, height: 120 },
+                    isExpanded: false,
+                    isAnimating: false
+                };
+                
+                // Button properties
+                this.button = {
+                    x: 0,
+                    y: 0,
+                    width: 100,
+                    height: 40,
+                    text: text,
+                    isPressed: false
+                };
+                
+                // Animation properties
+                this.animationRunning = false;
+                this.animationStartTime = 0;
+                this.circles = [];
+                
+                // Animation state for scaling
+                this.scaleAnimation = {
+                    isRunning: false,
+                    startTime: 0,
+                    startSize: { width: 0, height: 0 },
+                    targetSize: { width: 0, height: 0 },
+                    duration: 300
+                };
+                
+                // Track mouse over state
+                this.isMouseOver = false;
+                
+                this.setupEventListeners();
+                this.render();
+            }
+            
+            scaleCanvas(expand) {
+                if (this.canvasSize.isAnimating) return;
+                
+                this.canvasSize.isAnimating = true;
+                this.canvasSize.isExpanded = expand;
+                
+                // Set up animation parameters
+                this.scaleAnimation.isRunning = true;
+                this.scaleAnimation.startTime = performance.now();
+                this.scaleAnimation.startSize = {
+                    width: this.canvas.width,
+                    height: this.canvas.height
+                };
+                this.scaleAnimation.targetSize = expand ? this.canvasSize.large : this.canvasSize.small;
+                
+                // Create circles when expanding
+                if (expand) {
+                    this.circles.length = 0;
+                    for (let i = 0; i < 8; i++) {
+                        this.circles.push({
+                            x: this.canvas.width / 2,
+                            y: this.canvas.height / 2,
+                            radius: 3,
+                            angle: (i * Math.PI * 2) / 8,
+                            speed: 1 + Math.random() * 1,
+                            color: `hsl(${i * 45}, 70%, 60%)`,
+                            distance: 0
+                        });
+                    }
+                }
+            }
+
+            updateScaleAnimation(timestamp) {
+                if (!this.scaleAnimation.isRunning) return;
+                
+                const elapsed = timestamp - this.scaleAnimation.startTime;
+                const progress = Math.min(elapsed / this.scaleAnimation.duration, 1);
+                const eased = 1 - Math.pow(1 - progress, 3); // Ease out cubic
+                
+                const newWidth = this.scaleAnimation.startSize.width + 
+                    (this.scaleAnimation.targetSize.width - this.scaleAnimation.startSize.width) * eased;
+                const newHeight = this.scaleAnimation.startSize.height + 
+                    (this.scaleAnimation.targetSize.height - this.scaleAnimation.startSize.height) * eased;
+                
+                this.canvas.width = newWidth;
+                this.canvas.height = newHeight;
+                
+                // Update button position for expanded canvas
+                if (this.canvasSize.isExpanded) {
+                    this.button.x = (this.canvas.width - this.button.width) / 2;
+                    this.button.y = this.canvas.height - this.button.height - 10;
+                } else {
+                    this.button.x = 0;
+                    this.button.y = 0;
+                }
+                
+                if (progress >= 1) {
+                    this.scaleAnimation.isRunning = false;
+                    this.canvasSize.isAnimating = false;
+                }
+            }
+            
+            drawButton() {
+                // Button background
+                this.ctx.fillStyle = this.button.isPressed ? '#555' : '#666';
+                this.ctx.fillRect(this.button.x, this.button.y, this.button.width, this.button.height);
+                
+                // Button border
+                this.ctx.strokeStyle = '#888';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(this.button.x, this.button.y, this.button.width, this.button.height);
+                
+                // Button text
+                this.ctx.fillStyle = '#fff';
+                this.ctx.font = '12px Arial';
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                this.ctx.fillText(
+                    this.button.text, 
+                    this.button.x + this.button.width / 2, 
+                    this.button.y + this.button.height / 2
+                );
+            }
+            
+            drawAnimation(deltaTime) {
+                if (!this.animationRunning) return;
+                
+                const elapsed = deltaTime - this.animationStartTime;
+                
+                this.circles.forEach((circle, index) => {
+                    // Update position
+                    circle.distance += circle.speed;
+                    circle.x = this.canvas.width / 2 + Math.cos(circle.angle) * circle.distance;
+                    circle.y = this.canvas.height / 2 + Math.sin(circle.angle) * circle.distance;
+                    
+                    // Draw circle
+                    this.ctx.beginPath();
+                    this.ctx.arc(circle.x, circle.y, circle.radius, 0, Math.PI * 2);
+                    this.ctx.fillStyle = circle.color;
+                    this.ctx.fill();
+                    
+                    // Add trailing effect
+                    this.ctx.shadowColor = circle.color;
+                    this.ctx.shadowBlur = 10;
+                    this.ctx.fill();
+                    this.ctx.shadowBlur = 0;
+                });
+                
+                // Stop animation after 3 seconds
+                if (elapsed > 3000) {
+                    this.animationRunning = false;
+                    // Scale back down when animation ends if not hovering
+                    if (this.canvasSize.isExpanded && !this.isMouseOver) {
+                        this.scaleCanvas(false);
+                    }
+                }
+            }
+            
+            render = (timestamp) => {
+                // Update scale animation
+                this.updateScaleAnimation(timestamp);
+                
+                // Clear canvas
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                // Draw background pattern
+                this.ctx.fillStyle = '#333';
+                for (let i = 0; i < this.canvas.width; i += 20) {
+                    for (let j = 0; j < this.canvas.height; j += 20) {
+                        if ((i + j) % 40 === 0) {
+                            this.ctx.fillRect(i, j, 1, 1);
+                        }
+                    }
+                }
+                
+                // Draw animation
+                this.drawAnimation(timestamp);
+                
+                // Draw button on top
+                this.drawButton();
+                
+                requestAnimationFrame(this.render);
+            }
+            
+            setupEventListeners() {
+                // Handle hover events for canvas scaling
+                this.canvas.addEventListener('mouseenter', () => {
+                    this.isMouseOver = true;
+                    if (!this.canvasSize.isExpanded) {
+                        this.scaleCanvas(true);
+                    }
+                });
+                
+                this.canvas.addEventListener('mouseleave', () => {
+                    this.isMouseOver = false;
+                    if (this.canvasSize.isExpanded && !this.animationRunning) {
+                        this.scaleCanvas(false);
+                    }
+                });
+                
+                // Handle mouse events
+                const isPointInButton = (x, y) => {
+                    return x >= this.button.x && x <= this.button.x + this.button.width &&
+                           y >= this.button.y && y <= this.button.y + this.button.height;
+                };
+                
+                this.canvas.addEventListener('mousedown', (e) => {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    
+                    if (isPointInButton(x, y)) {
+                        this.button.isPressed = true;
+                    }
+                });
+                
+                this.canvas.addEventListener('mouseup', (e) => {
+                    const rect = this.canvas.getBoundingClientRect();
+                    const x = e.clientX - rect.left;
+                    const y = e.clientY - rect.top;
+                    
+                    if (this.button.isPressed && isPointInButton(x, y)) {
+                        // Start animation
+                        this.animationRunning = true;
+                        this.animationStartTime = performance.now();
+                        this.handleClick();
+                    }
+                    
+                    this.button.isPressed = false;
+                });
+                
+                this.canvas.addEventListener('mouseleave', () => {
+                    this.button.isPressed = false;
+                });
+            }
+            
+            handleClick() {
+                console.log(`Canvas button ${this.id} (${this.text}) clicked!`);
+                
+                // Add some visual feedback by changing canvas border temporarily
+                this.canvas.style.borderColor = '#4CAF50';
+                setTimeout(() => {
+                    this.canvas.style.borderColor = '#444';
+                }, 200);
+            }
+        }
+
+        // Initialize all canvas buttons
+        function initializeCanvasButtons() {
+            const canvases = document.querySelectorAll('.canvas-button');
+            const canvasButtons = [];
+            
+            canvases.forEach((canvas, index) => {
+                const text = canvas.getAttribute('data-text');
+                const id = canvas.getAttribute('data-id');
+                const canvasButton = new CanvasButton(canvas, text, id);
+                canvasButtons.push(canvasButton);
+            });
+            
+            return canvasButtons;
+        }
+
+        // Function to maintain horizontal text readability and position canvases
+        function updateCanvasPositions() {
+            const container = document.querySelector('.circle-container');
+            const canvases = document.querySelectorAll('.canvas-button');
+            
+            // Get current rotation of the container
+            const containerTransform = window.getComputedStyle(container).transform;
+            let containerRotation = 0;
+            
+            if (containerTransform !== 'none') {
+                const values = containerTransform.split('(')[1].split(')')[0].split(',');
+                const a = values[0];
+                const b = values[1];
+                containerRotation = Math.round(Math.atan2(b, a) * (180 / Math.PI));
+            }
+            
+            // Position each canvas around the circle
+            canvases.forEach((canvas, index) => {
+                const canvasAngle = index * 45; // 45 degrees apart
+                const totalRotation = containerRotation + canvasAngle;
+                canvas.style.transform = `translate(-50%, -50%) rotate(${canvasAngle}deg) translateY(-150px) rotate(${-totalRotation}deg)`;
+            });
+            
+            requestAnimationFrame(updateCanvasPositions);
+        }
+
+        // Initialize everything when the page loads
+        document.addEventListener('DOMContentLoaded', function() {
+            const canvasButtons = initializeCanvasButtons();
+            updateCanvasPositions();
+            
+            // Add keyboard navigation
+            document.addEventListener('keydown', function(e) {
+                if (e.key >= '1' && e.key <= '8') {
+                    const index = parseInt(e.key) - 1;
+                    if (canvasButtons[index]) {
+                        canvasButtons[index].handleClick();
+                        canvasButtons[index].animationRunning = true;
+                        canvasButtons[index].animationStartTime = performance.now();
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>
