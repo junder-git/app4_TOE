@@ -1,0 +1,490 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>3D Sphere Collision Detection</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(135deg, #1e3c72, #2a5298);
+            font-family: Arial, sans-serif;
+            overflow: hidden;
+        }
+        
+        #container {
+            width: 100vw;
+            height: 100vh;
+            position: relative;
+        }
+        
+        #controls {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 100;
+            background: rgba(0, 0, 0, 0.8);
+            padding: 15px;
+            border-radius: 10px;
+            color: white;
+        }
+        
+        .control-group {
+            margin-bottom: 10px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-size: 12px;
+        }
+        
+        input[type="range"] {
+            width: 150px;
+        }
+        
+        button {
+            background: #4CAF50;
+            border: none;
+            color: white;
+            padding: 8px 16px;
+            text-align: center;
+            text-decoration: none;
+            display: inline-block;
+            font-size: 12px;
+            margin: 4px 2px;
+            cursor: pointer;
+            border-radius: 4px;
+        }
+        
+        button:hover {
+            background: #45a049;
+        }
+        
+        #info {
+            position: absolute;
+            bottom: 20px;
+            left: 20px;
+            color: white;
+            font-size: 12px;
+            background: rgba(0, 0, 0, 0.6);
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="container">
+        <div id="controls">
+            <div class="control-group">
+                <label>Number of Circles: <span id="circleCount">50</span></label>
+                <input type="range" id="numCircles" min="10" max="200" value="50">
+            </div>
+            <div class="control-group">
+                <label>Circle Size: <span id="circleSize">0.1</span></label>
+                <input type="range" id="circleRadius" min="0.05" max="0.3" step="0.01" value="0.1">
+            </div>
+            <div class="control-group">
+                <label>Sphere Radius: <span id="sphereSize">3</span></label>
+                <input type="range" id="sphereRadius" min="2" max="6" step="0.1" value="3">
+            </div>
+            <div class="control-group">
+                <button id="randomize">Randomize Positions</button>
+                <button id="toggleWireframe">Toggle Wireframe</button>
+                <button id="toggleDebug">Toggle Debug Mode</button>
+            </div>
+        </div>
+        
+        <div id="info">
+            <div>Mouse: Rotate camera</div>
+            <div>Scroll: Zoom in/out</div>
+            <div>Hexagons represent collision detection zones</div>
+            <div>Debug mode shows canvas bounds and fills</div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+        // Scene setup
+        const scene = new THREE.Scene();
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        renderer.setClearColor(0x000000, 0);
+        document.getElementById('container').appendChild(renderer.domElement);
+
+        // Lighting
+        const ambientLight = new THREE.AmbientLight(0x404040, 0.4);
+        scene.add(ambientLight);
+        
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        directionalLight.position.set(5, 5, 5);
+        scene.add(directionalLight);
+
+        // Variables
+        let sphereRadius = 3;
+        let circleRadius = 0.1;
+        let numCircles = 50;
+        let sphere, circles = [], wireframeSphere;
+        let isWireframe = false;
+        let debugMode = false;
+
+        // Create main sphere with circular wireframe
+        function createSphere() {
+            if (sphere) scene.remove(sphere);
+            if (wireframeSphere) scene.remove(wireframeSphere);
+            
+            const sphereGeometry = new THREE.SphereGeometry(sphereRadius, 32, 32);
+            const sphereMaterial = new THREE.MeshLambertMaterial({ 
+                color: 0x3366cc, 
+                transparent: true, 
+                opacity: 0.3 
+            });
+            sphere = new THREE.Mesh(sphereGeometry, sphereMaterial);
+            scene.add(sphere);
+            
+            // Create circular wireframe using multiple ring circles
+            wireframeSphere = new THREE.Group();
+            
+            // Latitude circles (horizontal rings)
+            const latitudes = 16;
+            for (let i = 0; i < latitudes; i++) {
+                const phi = (i / latitudes) * Math.PI;
+                const y = sphereRadius * Math.cos(phi);
+                const ringRadius = sphereRadius * Math.sin(phi);
+                
+                if (ringRadius > 0.1) { // Skip very small rings at poles
+                    const circleGeometry = new THREE.BufferGeometry();
+                    const circlePoints = [];
+                    const segments = 64;
+                    
+                    for (let j = 0; j <= segments; j++) {
+                        const angle = (j / segments) * Math.PI * 2;
+                        circlePoints.push(
+                            Math.cos(angle) * ringRadius,
+                            y,
+                            Math.sin(angle) * ringRadius
+                        );
+                    }
+                    
+                    circleGeometry.setAttribute('position', new THREE.Float32BufferAttribute(circlePoints, 3));
+                    
+                    const circleMaterial = new THREE.LineBasicMaterial({ 
+                        color: 0xffffff, 
+                        transparent: true, 
+                        opacity: 0.2 
+                    });
+                    
+                    const circle = new THREE.Line(circleGeometry, circleMaterial);
+                    wireframeSphere.add(circle);
+                }
+            }
+            
+            // Longitude circles (vertical rings)
+            const longitudes = 16;
+            for (let i = 0; i < longitudes; i++) {
+                const theta = (i / longitudes) * Math.PI * 2;
+                
+                const circleGeometry = new THREE.BufferGeometry();
+                const circlePoints = [];
+                const segments = 64;
+                
+                for (let j = 0; j <= segments; j++) {
+                    const phi = (j / segments) * Math.PI;
+                    const x = sphereRadius * Math.sin(phi) * Math.cos(theta);
+                    const y = sphereRadius * Math.cos(phi);
+                    const z = sphereRadius * Math.sin(phi) * Math.sin(theta);
+                    
+                    circlePoints.push(x, y, z);
+                }
+                
+                circleGeometry.setAttribute('position', new THREE.Float32BufferAttribute(circlePoints, 3));
+                
+                const circleMaterial = new THREE.LineBasicMaterial({ 
+                    color: 0xffffff, 
+                    transparent: true, 
+                    opacity: 0.2 
+                });
+                
+                const circle = new THREE.Line(circleGeometry, circleMaterial);
+                wireframeSphere.add(circle);
+            }
+            
+            scene.add(wireframeSphere);
+        }
+
+        // Generate random point on sphere surface using Marsaglia method
+        function randomPointOnSphere(radius) {
+            let x1, x2, w;
+            do {
+                x1 = 2 * Math.random() - 1;
+                x2 = 2 * Math.random() - 1;
+                w = x1 * x1 + x2 * x2;
+            } while (w >= 1);
+            
+            const x = 2 * x1 * Math.sqrt(1 - w);
+            const y = 2 * x2 * Math.sqrt(1 - w);
+            const z = 1 - 2 * w;
+            
+            return new THREE.Vector3(x * radius, y * radius, z * radius);
+        }
+
+        // Create hexagonal collision zones on sphere surface
+        function createCircles() {
+            // Remove existing circles
+            circles.forEach(circle => scene.remove(circle));
+            circles = [];
+
+            // Calculate optimal hexagon placement for full sphere coverage
+            const hexagonArea = (3 * Math.sqrt(3) / 2) * (circleRadius * circleRadius);
+            const sphereSurfaceArea = 4 * Math.PI * (sphereRadius * sphereRadius);
+            const theoreticalHexagons = Math.ceil(sphereSurfaceArea / hexagonArea * 1.2); // 1.2x for tessellation
+            const actualCircles = Math.min(numCircles, theoreticalHexagons);
+
+            // Use Fibonacci sphere distribution for even coverage
+            const goldenRatio = (1 + Math.sqrt(5)) / 2;
+            
+            for (let i = 0; i < actualCircles; i++) {
+                // Fibonacci sphere point distribution
+                const theta = 2 * Math.PI * i / goldenRatio;
+                const phi = Math.acos(1 - 2 * (i + 0.5) / actualCircles);
+                
+                const x = sphereRadius * Math.sin(phi) * Math.cos(theta);
+                const y = sphereRadius * Math.sin(phi) * Math.sin(theta);
+                const z = sphereRadius * Math.cos(phi);
+                
+                const position = new THREE.Vector3(x, y, z);
+                const normal = position.clone().normalize();
+                
+                // Create efficient canvas texture for hexagon
+                const canvasSize = Math.max(32, Math.ceil(circleRadius * 100)); // Efficient canvas size
+                const canvas = document.createElement('canvas');
+                canvas.width = canvasSize;
+                canvas.height = canvasSize;
+                const ctx = canvas.getContext('2d');
+                
+                // Clear canvas
+                ctx.clearRect(0, 0, canvasSize, canvasSize);
+                
+                if (debugMode) {
+                    // Debug mode: show canvas bounds and hexagon
+                    ctx.strokeStyle = '#ff0000';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(0, 0, canvasSize, canvasSize);
+                    
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+                    ctx.fillRect(0, 0, canvasSize, canvasSize);
+                }
+                
+                // Draw hexagon
+                const centerX = canvasSize / 2;
+                const centerY = canvasSize / 2;
+                const hexRadius = canvasSize * 0.4; // Use most of the canvas efficiently
+                
+                ctx.beginPath();
+                for (let j = 0; j < 6; j++) {
+                    const angle = (j / 6) * Math.PI * 2;
+                    const px = centerX + Math.cos(angle) * hexRadius;
+                    const py = centerY + Math.sin(angle) * hexRadius;
+                    if (j === 0) ctx.moveTo(px, py);
+                    else ctx.lineTo(px, py);
+                }
+                ctx.closePath();
+                
+                // Set hexagon color
+                const hue = (i / actualCircles) * 360;
+                ctx.strokeStyle = `hsl(${hue}, 80%, 60%)`;
+                ctx.lineWidth = debugMode ? 3 : 2;
+                ctx.stroke();
+                
+                if (debugMode) {
+                    // Fill hexagon in debug mode
+                    ctx.fillStyle = `hsla(${hue}, 60%, 50%, 0.3)`;
+                    ctx.fill();
+                }
+                
+                // Create texture from canvas
+                const texture = new THREE.CanvasTexture(canvas);
+                texture.needsUpdate = true;
+                
+                // Create sprite for efficient rendering
+                const spriteMaterial = new THREE.SpriteMaterial({ 
+                    map: texture,
+                    transparent: true,
+                    opacity: debugMode ? 0.8 : 0.9,
+                    alphaTest: 0.001
+                });
+                
+                const sprite = new THREE.Sprite(spriteMaterial);
+                sprite.position.copy(position);
+                sprite.scale.setScalar(circleRadius * 2);
+                
+                // Proper orientation: align sprite to be tangent to sphere surface
+                const up = new THREE.Vector3(0, 1, 0);
+                const tangent1 = new THREE.Vector3().crossVectors(normal, up);
+                if (tangent1.length() < 0.1) {
+                    up.set(1, 0, 0);
+                    tangent1.crossVectors(normal, up);
+                }
+                tangent1.normalize();
+                const tangent2 = new THREE.Vector3().crossVectors(normal, tangent1);
+                
+                // Create rotation matrix for proper hexagon orientation
+                const matrix = new THREE.Matrix4();
+                matrix.makeBasis(tangent1, tangent2, normal);
+                
+                // Apply rotation to maintain adjacency
+                const rotationAngle = (i * 0.618034) % (Math.PI / 3); // Golden ratio rotation for better tessellation
+                const rotationMatrix = new THREE.Matrix4().makeRotationZ(rotationAngle);
+                matrix.multiply(rotationMatrix);
+                
+                // Note: Sprites auto-face camera, so we store orientation for collision detection
+                sprite.userData.orientation = matrix;
+                sprite.userData.normal = normal;
+                sprite.userData.hexagonId = i;
+                
+                // Add center dot for collision detection reference (only in debug mode)
+                if (debugMode) {
+                    const dotGeometry = new THREE.BufferGeometry();
+                    dotGeometry.setAttribute('position', new THREE.Float32BufferAttribute([0, 0, 0], 3));
+                    
+                    const dotMaterial = new THREE.PointsMaterial({ 
+                        color: new THREE.Color().setHSL(i / actualCircles, 1, 0.8),
+                        size: 6,
+                        transparent: true,
+                        opacity: 1.0
+                    });
+                    
+                    const dot = new THREE.Points(dotGeometry, dotMaterial);
+                    dot.position.copy(position);
+                    
+                    scene.add(dot);
+                    circles.push(dot);
+                }
+                
+                scene.add(sprite);
+                circles.push(sprite);
+            }
+            
+            // Update circle count display
+            document.getElementById('circleCount').textContent = actualCircles;
+        }
+
+        // Initialize scene
+        createSphere();
+        createCircles();
+
+        // Camera position
+        camera.position.set(8, 4, 8);
+        camera.lookAt(0, 0, 0);
+
+        // Mouse controls
+        let mouseX = 0, mouseY = 0;
+        let targetRotationX = 0, targetRotationY = 0;
+        let isMouseDown = false;
+
+        document.addEventListener('mousedown', (event) => {
+            isMouseDown = true;
+            mouseX = event.clientX;
+            mouseY = event.clientY;
+        });
+
+        document.addEventListener('mouseup', () => {
+            isMouseDown = false;
+        });
+
+        document.addEventListener('mousemove', (event) => {
+            if (isMouseDown) {
+                const deltaX = event.clientX - mouseX;
+                const deltaY = event.clientY - mouseY;
+                
+                targetRotationY += deltaX * 0.01;
+                targetRotationX += deltaY * 0.01;
+                
+                mouseX = event.clientX;
+                mouseY = event.clientY;
+            }
+        });
+
+        // Zoom control
+        document.addEventListener('wheel', (event) => {
+            camera.position.multiplyScalar(event.deltaY > 0 ? 1.1 : 0.9);
+            camera.position.clampLength(4, 20);
+        });
+
+        // Control handlers
+        document.getElementById('numCircles').addEventListener('input', (e) => {
+            numCircles = parseInt(e.target.value);
+            document.getElementById('circleCount').textContent = numCircles;
+            createCircles();
+        });
+
+        document.getElementById('circleRadius').addEventListener('input', (e) => {
+            circleRadius = parseFloat(e.target.value);
+            document.getElementById('circleSize').textContent = circleRadius;
+            createCircles();
+        });
+
+        document.getElementById('sphereRadius').addEventListener('input', (e) => {
+            sphereRadius = parseFloat(e.target.value);
+            document.getElementById('sphereSize').textContent = sphereRadius;
+            createSphere();
+            createCircles();
+        });
+
+        document.getElementById('randomize').addEventListener('click', () => {
+            createCircles();
+        });
+
+        document.getElementById('toggleWireframe').addEventListener('click', () => {
+            isWireframe = !isWireframe;
+            sphere.visible = !isWireframe;
+            wireframeSphere.visible = isWireframe;
+        });
+
+        document.getElementById('toggleDebug').addEventListener('click', () => {
+            debugMode = !debugMode;
+            createCircles(); // Recreate with new debug settings
+        });
+
+        // Animation loop
+        function animate() {
+            requestAnimationFrame(animate);
+            
+            // Smooth camera rotation
+            const cameraDistance = camera.position.length();
+            camera.position.x = Math.cos(targetRotationY) * Math.cos(targetRotationX) * cameraDistance;
+            camera.position.y = Math.sin(targetRotationX) * cameraDistance;
+            camera.position.z = Math.sin(targetRotationY) * Math.cos(targetRotationX) * cameraDistance;
+            camera.lookAt(0, 0, 0);
+            
+            // Gentle rotation of the sphere
+            if (sphere) {
+                sphere.rotation.y += 0.005;
+                wireframeSphere.rotation.y += 0.005;
+            }
+            
+            // Animate hexagons with subtle pulsing
+            circles.forEach((item, index) => {
+                if (item && item.material && item.material.opacity !== undefined) {
+                    const time = Date.now() * 0.001;
+                    item.material.opacity = (debugMode ? 0.6 : 0.8) + 0.1 * Math.sin(time + index * 0.2);
+                }
+            });
+            
+            renderer.render(scene, camera);
+        }
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+
+        // Start animation
+        animate();
+    </script>
+</body>
+</html>
